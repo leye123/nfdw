@@ -13,7 +13,7 @@ import numpy as np
 import random
 from torchmetrics.functional import peak_signal_noise_ratio, structural_similarity_index_measure
 import os
-
+from pre_data import get_list_img
 
 class DeblurDataset(Dataset):
     def __init__(self, path, mode='train'):
@@ -121,8 +121,12 @@ learning_rate = 2e-4
 num_epochs = 100
 
 '''读取数据'''
-train_dataset = DeblurDataset('new_data/train1')
-test_dataset = DeblurDataset('new_data/test1')
+# train_path = get_list_img('new_data/train1/train')
+# test_path = get_list_img('new_data/test1/test')
+# train_dataset = DeblurDataset(train_path)
+# test_dataset = DeblurDataset(test_path)
+train_dataset = DeblurDataset('new_data/train1/train/**.jpg')
+test_dataset = DeblurDataset('new_data/test1/test/**.jpg')
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
@@ -141,38 +145,40 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
 best_psnr = 0
 best_epoch = 0
 for epoch in trange(num_epochs):
-    for inputs, labels in train_loader:
+    for inputs, labels, *extra_data in train_loader:
         # 确保 inputs 和 labels 都是 Tensor 类型
-        inputs, labels = inputs.to(device), labels.to(device)  # 如果这里报错，则说明 inputs 或 labels 不是 Tensor
-        # labels = labels.unsqueeze(0).unsqueeze(1).expand(1, 244, 244)
-        # labels = torch.argmax(labels,dim=1)
-        print(inputs.shape)
-        print(labels.shape)
-        # 前向传播
-        outputs = mymodel(inputs)
-        print(outputs.shape)
-        loss = criterion(outputs, labels) + (1 - structural_similarity_index_measure(outputs, labels)) * 0.1
+        with torch.no_grad():
+            inputs, labels = inputs.to(device), labels.to(device)  # 如果这里报错，则说明 inputs 或 labels 不是 Tensor
+            # labels = labels.unsqueeze(0).unsqueeze(1).expand(1, 244, 244)
+            # labels = torch.argmax(labels,dim=1)
+            # print(inputs.shape)
+            # print(labels.shape)
+            # 前向传播
+            outputs = mymodel(inputs)
+            # print(outputs.shape)
+            loss = criterion(outputs, labels) + (1 - structural_similarity_index_measure(outputs, labels)) * 0.1
 
-        # 反向传播和优化
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-    
-    scheduler.step()
+            # 反向传播和优化
+            optimizer.zero_grad()
+            loss.requires_grad_(True)
+            loss.backward()
+            optimizer.step()
+
+        scheduler.step()
 
     with torch.no_grad():
         psnr = 0
         ssim = 0
-        for images, labels in test_loader:
+        for images, labels, *extra_data in test_loader:
             images, labels = images.to(device), labels.to(device)
             outputs = mymodel(images)
-            
+
             psnr += peak_signal_noise_ratio(outputs, labels)
             ssim += structural_similarity_index_measure(outputs, labels)
 
         psnr = psnr.item() / len(test_loader)
         ssim = ssim.item() / len(test_loader)
-        
+
         if psnr > best_psnr:
             best_psnr = psnr
             best_epoch = epoch
